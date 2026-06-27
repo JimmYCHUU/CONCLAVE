@@ -1,0 +1,38 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: conclave_postgres
+    environment:
+      POSTGRES_USER: conclave_user
+      POSTGRES_PASSWORD: conclave_pass
+      POSTGRES_DB: conclave_db
+    ports: ["5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  redis:
+    image: redis:7-alpine
+    container_name: conclave_redis
+    ports: ["6379:6379"]
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  chromadb:
+    image: chromadb/chroma:0.5.23
+    container_name: conclave_chroma
+    ports: ["8001:8000"]
+    volumes: [chroma_data:/chroma/chroma]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  postgres_data:
+  chroma_data:

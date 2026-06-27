@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+.venv/
+*.egg-info/
+backend/data/graphs/
+chroma_data/
+postgres_data/
+alembic/versions/*.py
+!alembic/versions/.gitkeep
+api.md

@@ -1,0 +1,29 @@
+model_list:
+  # Council agents use Gemini (quality, large context)
+  - model_name: council-model
+    litellm_params:
+      model: gemini/gemini-2.0-flash
+      api_key: os.environ/GOOGLE_API_KEY
+      timeout: 30
+      num_retries: 1
+
+  # Swarm agents use Groq (speed, high volume)
+  - model_name: swarm-model
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+      timeout: 15
+      num_retries: 1
+
+  # Offline fallback
+  - model_name: fallback-model
+    litellm_params:
+      model: ollama/llama3.2:3b
+      api_base: http://localhost:11434
+      timeout: 60
+
+router_settings:
+  routing_strategy: fallback
+  fallbacks:
+    - council-model: [swarm-model, fallback-model]
+    - swarm-model: [council-model, fallback-model]
