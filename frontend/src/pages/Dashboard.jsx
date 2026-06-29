@@ -23,7 +23,9 @@ export default function Dashboard() {
       return getBrief(res.data.id)
     }).then((res) => {
       if (res.data?.brief) setBrief(res.data.brief)
-    }).catch(() => {})
+    }).catch(() => {
+      navigate('/onboarding')
+    })
   }, [])
 
   return (

@@ -17,6 +17,7 @@ async def run_debate_cycle(
     is_morning_brief: bool = False,
     topic_override: str | None = None,
     is_user_inject: bool = False,
+    session_id_override: str | None = None,
 ) -> str:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Conclave).where(Conclave.id == uuid.UUID(conclave_id)))
@@ -32,17 +33,25 @@ async def run_debate_cycle(
 
         topic = topic_override or f"{conclave.domain} market analysis for {datetime.utcnow().strftime('%Y-%m-%d')}"
 
-        session = DebateSession(
-            conclave_id=uuid.UUID(conclave_id),
-            topic=topic,
-            triggered_by="user_inject" if is_user_inject else "scheduled",
-            status="running",
-            is_morning_brief=is_morning_brief,
-        )
-        db.add(session)
-        await db.commit()
-        await db.refresh(session)
-        session_id = str(session.id)
+        if session_id_override:
+            session_id = session_id_override
+            result = await db.execute(select(DebateSession).where(DebateSession.id == uuid.UUID(session_id)))
+            session = result.scalar_one_or_none()
+            if session:
+                session.status = "running"
+                await db.commit()
+        else:
+            session = DebateSession(
+                conclave_id=uuid.UUID(conclave_id),
+                topic=topic,
+                triggered_by="user_inject" if is_user_inject else "scheduled",
+                status="running",
+                is_morning_brief=is_morning_brief,
+            )
+            db.add(session)
+            await db.commit()
+            await db.refresh(session)
+            session_id = str(session.id)
 
     agent_dicts = [
         {"id": str(a.id), "name": a.name, "role": a.role,

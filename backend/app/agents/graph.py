@@ -4,6 +4,8 @@ from app.agents.llm import call_council_llm
 from app.agents.swarm import run_swarm
 from app.agents.news_fetcher import fetch_news
 from app.agents.knowledge_graph import get_topic_context
+import redis.asyncio as redis
+from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.debate import DebateMessage, DebateSession
 from app.models.agent import Agent
@@ -106,6 +108,14 @@ async def swarm_node(state: DebateState) -> DebateState:
     await _store_swarm_messages(state["session_id"], summary)
     return state
 
+async def _publish_redis(session_id: str, data: dict):
+    try:
+        r = redis.from_url(settings.redis_url, decode_responses=True)
+        await r.publish(f"debate:{session_id}", json.dumps(data))
+        await r.close()
+    except Exception:
+        pass
+
 async def _store_swarm_messages(session_id: str, swarm_summary: dict):
     async with AsyncSessionLocal() as db:
         for reaction in swarm_summary.get("key_reactions", []):
@@ -116,6 +126,17 @@ async def _store_swarm_messages(session_id: str, swarm_summary: dict):
                 is_swarm=True,
             )
             db.add(msg)
+            await db.flush()
+            await _publish_redis(session_id, {
+                "type": "message",
+                "agent_name": None,
+                "agent_id": None,
+                "content": reaction,
+                "round_number": 0,
+                "is_swarm": True,
+                "is_contrarian_round": False,
+                "timestamp": datetime.utcnow().isoformat(),
+            })
         await db.commit()
 
 async def agent_turn_node(state: DebateState) -> DebateState:
@@ -151,7 +172,10 @@ async def agent_turn_node(state: DebateState) -> DebateState:
             )
 
         try:
-            response = await call_council_llm(messages=[{"role": "user", "content": prompt}])
+            response = await call_council_llm(messages=[
+                {"role": "system", "content": f"You are {agent['name']}, a {agent['role']}. {agent['personality_prompt']} Your known bias: {agent['bias_description']}. Never break character. Never call yourself an AI."},
+                {"role": "user", "content": prompt},
+            ])
         except Exception:
             response = f"Interesting point. Let me analyze {state['topic']} from my perspective as {agent['role']}."
 
@@ -177,6 +201,16 @@ async def agent_turn_node(state: DebateState) -> DebateState:
             )
             db.add(db_msg)
             await db.commit()
+            await _publish_redis(state["session_id"], {
+                "type": "message",
+                "agent_name": agent["name"],
+                "agent_id": agent["id"],
+                "content": response,
+                "round_number": round_num,
+                "is_swarm": False,
+                "is_contrarian_round": msg_entry["is_contrarian_round"],
+                "timestamp": datetime.utcnow().isoformat(),
+            })
 
     return state
 
@@ -232,6 +266,11 @@ async def summarizer_node(state: DebateState) -> DebateState:
             session.status = "completed"
             session.completed_at = datetime.utcnow()
             await db.commit()
+
+    await _publish_redis(state["session_id"], {
+        "type": "debate_complete",
+        "summary": state["summary"],
+    })
 
     return state
 

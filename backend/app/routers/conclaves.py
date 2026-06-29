@@ -1,14 +1,16 @@
+import asyncio
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
 from app.schemas.conclave import CreateConclaveRequest, UpdateConclaveRequest
 from app.services.auth_deps import get_current_user
 from app.services.conclave_service import create_conclave, get_my_conclave, get_brief, get_brief_history
 from app.models.user import User
 from app.models.conclave import Conclave
 from app.models.agent import Agent
-from sqlalchemy import select, update
-import uuid
+from app.models.debate import DebateSession
 
 router = APIRouter()
 
@@ -72,13 +74,47 @@ async def inject_scenario(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    import uuid as uuid_lib
+    from app.models.debate import DebateSession
+    from app.models.agent import Agent
+    from sqlalchemy import select
+
+    result = await db.execute(select(Agent).where(Agent.conclave_id == uuid.UUID(conclave_id)))
+    agents = result.scalars().all()
+    if not agents:
+        raise HTTPException(status_code=404, detail="Conclave not found")
+
+    topic = req.get("scenario", "User injected scenario")
+    session = DebateSession(
+        conclave_id=uuid.UUID(conclave_id),
+        topic=topic,
+        triggered_by="user_inject",
+        status="queued",
+        is_morning_brief=False,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    session_id = str(session.id)
+
+    from app.agents.scheduler import run_debate_cycle
+    asyncio.ensure_future(_run_debate_background(conclave_id, session_id, topic))
+
+    return {"data": {"session_id": session_id, "status": "queued"}, "error": None}
+
+async def _run_debate_background(conclave_id: str, session_id: str, topic: str):
     from app.agents.scheduler import run_debate_cycle
     try:
-        session_id = await run_debate_cycle(
+        await run_debate_cycle(
             conclave_id,
             is_user_inject=True,
-            topic_override=req.get("scenario"),
+            topic_override=topic,
+            session_id_override=session_id,
         )
-        return {"data": {"session_id": session_id, "status": "queued"}, "error": None}
-    except Exception as e:
-        return {"data": None, "error": {"code": "DEBATE_IN_PROGRESS", "detail": str(e)}}
+    except Exception:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(DebateSession).where(DebateSession.id == uuid.UUID(session_id)))
+            s = result.scalar_one_or_none()
+            if s:
+                s.status = "failed"
+                await db.commit()

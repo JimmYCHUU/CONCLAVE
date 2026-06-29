@@ -24,7 +24,7 @@ services:
           memory: 64M
 
   chromadb:
-    image: chromadb/chroma:0.5.23
+    image: chromadb/chroma:1.5.9
     container_name: conclave_chroma
     ports: ["8001:8000"]
     volumes: [chroma_data:/chroma/chroma]

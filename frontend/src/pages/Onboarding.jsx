@@ -30,26 +30,15 @@ export default function Onboarding() {
   const handleRegister = async () => {
     setLoading(true)
     try {
-      const res = await registerApi({ email, username, password, domain })
-      login({ user_id: res.data.user_id, username: res.data.username, email: res.data.email, domain }, res.data.access_token)
+      const reg = await registerApi({ email, username, password, domain })
+      login({ user_id: reg.data.user_id, username: reg.data.username, email: reg.data.email, domain }, reg.data.access_token)
+
+      const concl = await createConclave({ name: conclaveName || `${domain} Chamber`, domain: domain.toLowerCase() })
+      setConclave(concl.data)
+      setAgents(concl.data.agents)
       setStep(3)
     } catch (e) {
       alert('Registration failed: ' + (e.response?.data?.detail?.detail || e.message))
-    }
-    setLoading(false)
-  }
-
-  const handleSummon = async () => {
-    setLoading(true)
-    try {
-      const res = await createConclave({ name: conclaveName || `${domain} Chamber`, domain: domain.toLowerCase() })
-      setConclave(res.data)
-      setAgents(res.data.agents)
-      setTimeout(() => {
-        navigate('/dashboard')
-      }, 1500)
-    } catch (e) {
-      alert('Failed to create conclave: ' + (e.response?.data?.detail || e.message))
     }
     setLoading(false)
   }

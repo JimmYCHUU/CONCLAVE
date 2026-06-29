@@ -20,14 +20,11 @@ export default function Inject() {
     try {
       const res = await injectScenario(conclave.id, scenario)
       setSessionId(res.data.session_id)
-      startLiveDebate({ id: res.data.session_id, topic: scenario, status: 'running', is_user_inject: true })
-      setTimeout(() => {
-        navigate(`/chamber/${res.data.session_id}`)
-      }, 2000)
+      navigate(`/chamber/${res.data.session_id}`)
     } catch (e) {
+      setLoading(false)
       alert('Failed to inject scenario')
     }
-    setLoading(false)
   }
 
   return (

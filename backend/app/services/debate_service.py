@@ -14,10 +14,11 @@ async def get_debate(db: AsyncSession, session_id: str) -> dict | None:
         return None
 
     msgs_result = await db.execute(
-        select(DebateMessage).where(DebateMessage.session_id == uuid.UUID(session_id))
+        select(DebateMessage, Agent.name).outerjoin(Agent, DebateMessage.agent_id == Agent.id)
+        .where(DebateMessage.session_id == uuid.UUID(session_id))
         .order_by(DebateMessage.round_number, DebateMessage.created_at)
     )
-    messages = msgs_result.scalars().all()
+    rows = msgs_result.all()
 
     preds_result = await db.execute(select(Prediction).where(Prediction.session_id == uuid.UUID(session_id)))
     predictions = preds_result.scalars().all()
@@ -28,13 +29,15 @@ async def get_debate(db: AsyncSession, session_id: str) -> dict | None:
         "swarm_summary": session.swarm_summary,
         "summary": session.summary,
         "status": session.status,
+        "triggered_by": session.triggered_by,
+        "is_user_inject": session.triggered_by == "user_inject",
         "contrarian_activated": session.contrarian_activated,
         "messages": [{
-            "agent_name": None, "content": m.content,
-            "round_number": m.round_number, "is_swarm": m.is_swarm,
-            "is_contrarian_round": m.is_contrarian_round,
-            "timestamp": m.created_at.isoformat() if m.created_at else None,
-        } for m in messages],
+            "agent_name": name, "content": msg.content, "agent_id": str(msg.agent_id) if msg.agent_id else None,
+            "round_number": msg.round_number, "is_swarm": msg.is_swarm,
+            "is_contrarian_round": msg.is_contrarian_round,
+            "timestamp": msg.created_at.isoformat() if msg.created_at else None,
+        } for msg, name in rows],
         "predictions": [{
             "id": str(p.id), "agent_id": str(p.agent_id),
             "claim": p.claim, "confidence": p.confidence,
