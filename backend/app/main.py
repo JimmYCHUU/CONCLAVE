@@ -12,6 +12,11 @@ async def lifespan(app: FastAPI):
     await init_db()
     os.makedirs("data/graphs", exist_ok=True)
     start_scheduler()
+    try:
+        from app.scripts.seed_discover import seed_discover_conclaves
+        await seed_discover_conclaves()
+    except Exception:
+        pass
     yield
     stop_scheduler()
 

@@ -18,9 +18,17 @@ router = APIRouter()
 async def create(req: CreateConclaveRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     try:
         conclave = await create_conclave(db, str(user.id), req.name, req.domain)
+        asyncio.ensure_future(_trigger_initial_brief(str(conclave["id"])))
         return {"data": conclave, "error": None}
     except ValueError as e:
         return {"data": None, "error": {"code": str(e), "detail": "Conclave already exists"}}
+
+async def _trigger_initial_brief(conclave_id: str):
+    from app.agents.scheduler import run_debate_cycle
+    try:
+        await run_debate_cycle(conclave_id, is_morning_brief=True)
+    except Exception:
+        pass
 
 @router.get("/my")
 async def get_my(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):

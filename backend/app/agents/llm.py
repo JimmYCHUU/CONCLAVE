@@ -1,7 +1,7 @@
 import asyncio
 from app.config import settings
 
-async def _call_gemini(messages: list[dict], max_tokens: int, timeout: int) -> str | None:
+async def _call_gemini(messages: list[dict], max_tokens: int, timeout: int, temperature: float = 0.7) -> str | None:
     try:
         from google import genai
         client = genai.Client(api_key=settings.google_api_key)
@@ -10,7 +10,7 @@ async def _call_gemini(messages: list[dict], max_tokens: int, timeout: int) -> s
         response = await asyncio.wait_for(
             asyncio.to_thread(
                 lambda: client.models.generate_content(model=model, contents=contents,
-                    config={"max_output_tokens": max_tokens}),
+                    config={"max_output_tokens": max_tokens, "temperature": temperature}),
             ),
             timeout=timeout,
         )
@@ -18,7 +18,7 @@ async def _call_gemini(messages: list[dict], max_tokens: int, timeout: int) -> s
     except Exception:
         return None
 
-async def _call_groq(messages: list[dict], max_tokens: int, timeout: int) -> str | None:
+async def _call_groq(messages: list[dict], max_tokens: int, timeout: int, temperature: float = 0.7) -> str | None:
     try:
         from groq import AsyncGroq
         client = AsyncGroq(api_key=settings.groq_api_key)
@@ -26,7 +26,7 @@ async def _call_groq(messages: list[dict], max_tokens: int, timeout: int) -> str
         response = await asyncio.wait_for(
             client.chat.completions.create(
                 model=model, messages=messages,
-                max_tokens=max_tokens,
+                max_tokens=max_tokens, temperature=temperature,
             ),
             timeout=timeout,
         )
@@ -34,7 +34,7 @@ async def _call_groq(messages: list[dict], max_tokens: int, timeout: int) -> str
     except Exception:
         return None
 
-async def _call_ollama(messages: list[dict], max_tokens: int, timeout: int) -> str | None:
+async def _call_ollama(messages: list[dict], max_tokens: int, timeout: int, temperature: float = 0.7) -> str | None:
     try:
         import httpx
         prompt = "\n".join(m["content"] for m in messages)
@@ -42,26 +42,26 @@ async def _call_ollama(messages: list[dict], max_tokens: int, timeout: int) -> s
             resp = await client.post(
                 f"{settings.ollama_base_url}/api/generate",
                 json={"model": settings.ollama_model.replace("ollama/", ""),
-                      "prompt": prompt, "options": {"num_predict": max_tokens}},
+                      "prompt": prompt, "options": {"num_predict": max_tokens, "temperature": temperature}},
             )
             return resp.json().get("response", "").strip()
     except Exception:
         return None
 
-async def _call_llm(messages: list[dict], max_tokens: int, timeout: int) -> str:
-    result = await _call_gemini(messages, max_tokens, timeout)
+async def _call_llm(messages: list[dict], max_tokens: int, timeout: int, temperature: float = 0.7) -> str:
+    result = await _call_gemini(messages, max_tokens, timeout, temperature)
     if result:
         return result
-    result = await _call_groq(messages, max_tokens, timeout)
+    result = await _call_groq(messages, max_tokens, timeout, temperature)
     if result:
         return result
-    result = await _call_ollama(messages, max_tokens, timeout)
+    result = await _call_ollama(messages, max_tokens, timeout, temperature)
     if result:
         return result
     raise Exception("All LLM providers failed")
 
-async def call_council_llm(messages: list[dict], max_tokens: int = 800) -> str:
-    return await _call_llm(messages, max_tokens, timeout=30)
+async def call_council_llm(messages: list[dict], max_tokens: int = 800, temperature: float = 0.85) -> str:
+    return await _call_llm(messages, max_tokens, timeout=30, temperature=temperature)
 
-async def call_swarm_llm(messages: list[dict], max_tokens: int = 200) -> str:
-    return await _call_llm(messages, max_tokens, timeout=15)
+async def call_swarm_llm(messages: list[dict], max_tokens: int = 200, temperature: float = 0.7) -> str:
+    return await _call_llm(messages, max_tokens, timeout=15, temperature=temperature)

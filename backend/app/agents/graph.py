@@ -34,6 +34,77 @@ class DebateState(TypedDict):
     predictions: List[dict]
     is_user_inject: bool
 
+VOICE_ARCHETYPES = [
+    {
+        "id": "blunt_skeptic",
+        "word_range": "50-90 words, 2-3 sentences max",
+        "register": "Terse, declarative, no hedging or setup clauses. Lead with a number or a flat statement.",
+        "openers": [
+            "Wrong question.",
+            "Three numbers matter here:",
+            "Skip the narrative —",
+        ],
+    },
+    {
+        "id": "expansive_macro",
+        "word_range": "140-190 words, 4-6 sentences",
+        "register": "Unhurried and contextual. Connects the immediate question to a longer time horizon before landing on a view.",
+        "openers": [
+            "Zoom out for a moment —",
+            "The slower-moving signal underneath this is",
+            "What's missing from this conversation is the multi-month context:",
+        ],
+    },
+    {
+        "id": "confident_quant",
+        "word_range": "90-130 words, 3-4 sentences",
+        "register": "Evidence-first. References screens, models, or ranked data. States conclusions plainly with quantified backing.",
+        "openers": [
+            "The data says something different:",
+            "My screens are flagging",
+            "Numbers over narrative —",
+        ],
+    },
+    {
+        "id": "contrarian_oblique",
+        "word_range": "90-130 words, 3-4 sentences",
+        "register": "Reframes the question rather than answering it head-on. Comfortable being the only one in the room with this read.",
+        "openers": [
+            "Funny thing about crowds —",
+            "Nobody's asking the obvious question:",
+            "Here's what the room isn't saying:",
+        ],
+    },
+    {
+        "id": "measured_dissent",
+        "word_range": "90-130 words, 3-4 sentences",
+        "register": "Calm, understated, slightly wry. Surfaces a quieter or overlooked signal without raising its voice.",
+        "openers": [
+            "Worth noting before anyone gets excited:",
+            "The quieter signal here is",
+            "One thing nobody's pricing in:",
+        ],
+    },
+]
+
+BANNED_PHRASES = [
+    "Interesting point",
+    "Let me analyze",
+    "from my perspective as",
+    "This is a complex",
+    "I would like to",
+    "Building on what",
+    "Let me break this down",
+    "the consensus is wrong",
+    "the crowd is wrong",
+    "the market is wrong about this",
+    "everyone's focused on the headline",
+]
+
+def _check_banned(text: str) -> bool:
+    t = text.lower()
+    return any(p.lower() in t for p in BANNED_PHRASES)
+
 AGENT_DEBATE_PROMPT = """You are {agent_name}, a {agent_role} in a private intelligence conclave.
 
 Your analytical identity: {personality_prompt}
@@ -58,7 +129,21 @@ INSTRUCTIONS:
 2. Apply your unique analytical lens. Disagree when you actually disagree.
 3. Reference the crowd intelligence when relevant — agree or disagree with it.
 4. End with: PREDICTION: [specific falsifiable claim] | CONFIDENCE: [0-100]%
-5. Under 200 words. Stay in character. Never call yourself an AI.
+5. Stay in character. Never call yourself an AI.
+
+BANNED — never use any of these:
+- "Interesting point"
+- "Let me analyze"
+- "from my perspective as [role]"
+- "This is a complex situation"
+- "the consensus/crowd/market is wrong" (any variation)
+- Any opening that echoes the scenario text back
+
+YOUR VOICE THIS DEBATE:
+- Length: {voice_word_range}
+- Register: {voice_register}
+- Open with one of these (pick whichever fits — never reuse another speaker's opener from PREVIOUS DEBATE ROUNDS above): {voice_openers}
+- Do not open with any variation of "the consensus/crowd/market is wrong" — that framing is retired across the whole conclave. Use your assigned opener instead.
 
 Your response:"""
 
@@ -74,6 +159,11 @@ Draw on your knowledge of historical precedents where similar consensus views pr
 You are not changing your permanent views — you are performing intellectual due diligence for the conclave.
 
 Cite specific counterarguments, overlooked risks, or ignored data.
+
+YOUR VOICE THIS ROUND:
+- Open with one of: {voice_openers}
+- Do not open with any variation of "the consensus/crowd/market is wrong."
+
 End with: PREDICTION: [specific falsifiable counter-prediction] | CONFIDENCE: [0-100]%
 Under 200 words."""
 
@@ -143,7 +233,9 @@ async def agent_turn_node(state: DebateState) -> DebateState:
     round_num = state["current_round"]
     is_contrarian_round = state["contrarian_activated"] and state.get("contrarian_agent_id")
 
-    for agent in state["agents"]:
+    for idx, agent in enumerate(state["agents"]):
+        voice = VOICE_ARCHETYPES[idx % len(VOICE_ARCHETYPES)]
+
         if is_contrarian_round and agent["id"] == state["contrarian_agent_id"]:
             consensus_position = _detect_consensus_position(state["debate_history"])
             prompt = CONTRARIAN_PROMPT.format(
@@ -151,6 +243,7 @@ async def agent_turn_node(state: DebateState) -> DebateState:
                 agent_role=agent["role"],
                 bias_description=agent["bias_description"],
                 consensus_position=consensus_position,
+                voice_openers=", ".join(f'"{o}"' for o in voice["openers"]),
             )
         else:
             swarm_str = json.dumps(state["swarm_summary"], indent=2) if state.get("swarm_summary") else "No swarm data"
@@ -169,15 +262,46 @@ async def agent_turn_node(state: DebateState) -> DebateState:
                 stakeholder_types=state["domain"],
                 swarm_summary_formatted=swarm_str,
                 debate_history_formatted=history_str,
+                voice_word_range=voice["word_range"],
+                voice_register=voice["register"],
+                voice_openers=", ".join(f'"{o}"' for o in voice["openers"]),
             )
 
-        try:
-            response = await call_council_llm(messages=[
-                {"role": "system", "content": f"You are {agent['name']}, a {agent['role']}. {agent['personality_prompt']} Your known bias: {agent['bias_description']}. Never break character. Never call yourself an AI."},
-                {"role": "user", "content": prompt},
-            ])
-        except Exception:
-            response = f"Interesting point. Let me analyze {state['topic']} from my perspective as {agent['role']}."
+        system_msg = {
+            "role": "system",
+            "content": (
+                f"You are {agent['name']}, a {agent['role']}. {agent['personality_prompt']} "
+                f"Your known bias: {agent['bias_description']}. "
+                f"Voice: {voice['register']} Target length: {voice['word_range']}. "
+                f"Never break character. Never call yourself an AI. Never use banned phrases."
+            ),
+        }
+
+        response = ""
+        current_prompt = prompt
+        for attempt in range(2):
+            try:
+                temp = 0.85 + (attempt * 0.15)
+                response = await call_council_llm(
+                    messages=[system_msg, {"role": "user", "content": current_prompt}],
+                    temperature=temp,
+                )
+                if not _check_banned(response):
+                    break
+                current_prompt = (
+                    prompt
+                    + f"\n\nYour previous draft used a retired or overused phrase. "
+                      f"Rewrite it. Open with one of: {voice['openers']}. Do not use "
+                      f"any phrase resembling 'the consensus/crowd/market is wrong.'"
+                )
+            except Exception:
+                if attempt == 1:
+                    response = (
+                        f"{voice['openers'][0]} {state['topic']} needs more signal "
+                        f"before I'll commit to a hard call this round. "
+                        f"PREDICTION: Insufficient signal to call a clear direction | CONFIDENCE: 30%"
+                    )
+                continue
 
         msg_entry = {
             "agent_name": agent["name"],
@@ -225,9 +349,9 @@ def _detect_consensus_position(history: list) -> str:
 async def moderator_node(state: DebateState) -> DebateState:
     state["current_round"] += 1
 
-    if len(state["debate_history"]) >= 4 * state["max_rounds"]:
+    if state["current_round"] == state["max_rounds"] - 1 and not state["contrarian_activated"]:
         last_round_msgs = [m for m in state["debate_history"] if m["round_number"] == state["current_round"] - 1]
-        if len(last_round_msgs) >= 4 and not state["contrarian_activated"]:
+        if len(last_round_msgs) >= 4:
             check_prompt = f"Do 4 or more of these responses agree on the same directional outcome? Answer YES or NO only. Responses: {[m['content'][:200] for m in last_round_msgs]}"
             try:
                 consensus_check = await call_council_llm(messages=[{"role": "user", "content": check_prompt}], max_tokens=10)
@@ -238,7 +362,7 @@ async def moderator_node(state: DebateState) -> DebateState:
             except Exception:
                 pass
 
-    if state["current_round"] >= state["max_rounds"] or len(state["debate_history"]) >= 4 * state["max_rounds"]:
+    if state["current_round"] >= state["max_rounds"]:
         state["consensus_reached"] = True
 
     return state

@@ -22,6 +22,7 @@ export default function Router() {
       <Route path="/" element={<Landing />} />
       <Route path="/onboarding" element={<Onboarding />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/chamber" element={<ProtectedRoute><Chamber /></ProtectedRoute>} />
       <Route path="/chamber/:sessionId" element={<ProtectedRoute><Chamber /></ProtectedRoute>} />
       <Route path="/agent/:agentId" element={<ProtectedRoute><AgentProfile /></ProtectedRoute>} />
       <Route path="/inject" element={<ProtectedRoute><Inject /></ProtectedRoute>} />

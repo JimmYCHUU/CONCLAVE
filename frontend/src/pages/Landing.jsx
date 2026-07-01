@@ -15,7 +15,7 @@ export default function Landing() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-[#080810] flex flex-col items-center justify-center relative overflow-hidden">
+    <div className="min-h-screen bg-[#080810] bg-dot-grid bg-dot-grid flex flex-col items-center justify-center relative overflow-hidden">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

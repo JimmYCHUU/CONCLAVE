@@ -11,7 +11,7 @@ import uuid
 router = APIRouter()
 
 @router.get("/")
-async def get_feed(page: int = Query(1), db: AsyncSession = Depends(get_db)):
+async def get_feed(page: int = Query(1), db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     per_page = 10
     result = await db.execute(
         select(Conclave).where(Conclave.is_public == True)
@@ -19,9 +19,16 @@ async def get_feed(page: int = Query(1), db: AsyncSession = Depends(get_db)):
         .offset((page - 1) * per_page).limit(per_page)
     )
     conclaves = result.scalars().all()
+
+    followed_result = await db.execute(
+        select(ConclaveFollower.conclave_id).where(ConclaveFollower.follower_user_id == user.id)
+    )
+    followed_ids = {row[0] for row in followed_result.all()}
+
     return {"data": [{
         "id": str(c.id), "name": c.name, "domain": c.domain,
         "follower_count": c.follower_count,
+        "is_following": c.id in followed_ids,
     } for c in conclaves], "error": None}
 
 @router.post("/{conclave_id}/follow")

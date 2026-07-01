@@ -7,6 +7,16 @@ from app.models.prediction import Prediction
 from app.models.scenario_branch import ScenarioBranch
 from app.models.agent import Agent
 
+def _classify_direction(claim: str) -> str:
+    claim_lower = claim.lower()
+    bullish_words = ["rise", "increase", "up", "bullish", "higher", "gain", "rally"]
+    bearish_words = ["drop", "decrease", "down", "bearish", "lower", "fall", "decline", "plummet"]
+    if any(w in claim_lower for w in bullish_words):
+        return "bullish"
+    if any(w in claim_lower for w in bearish_words):
+        return "bearish"
+    return "neutral"
+
 async def get_debate(db: AsyncSession, session_id: str) -> dict | None:
     result = await db.execute(select(DebateSession).where(DebateSession.id == uuid.UUID(session_id)))
     session = result.scalar_one_or_none()
@@ -23,6 +33,11 @@ async def get_debate(db: AsyncSession, session_id: str) -> dict | None:
     preds_result = await db.execute(select(Prediction).where(Prediction.session_id == uuid.UUID(session_id)))
     predictions = preds_result.scalars().all()
 
+    council_split = {"bullish": [], "bearish": [], "neutral": []}
+    for p in predictions:
+        direction = _classify_direction(p.claim)
+        council_split[direction].append(str(p.agent_id))
+
     return {
         "session_id": str(session.id),
         "topic": session.topic,
@@ -32,6 +47,7 @@ async def get_debate(db: AsyncSession, session_id: str) -> dict | None:
         "triggered_by": session.triggered_by,
         "is_user_inject": session.triggered_by == "user_inject",
         "contrarian_activated": session.contrarian_activated,
+        "council_split": council_split,
         "messages": [{
             "agent_name": name, "content": msg.content, "agent_id": str(msg.agent_id) if msg.agent_id else None,
             "round_number": msg.round_number, "is_swarm": msg.is_swarm,
@@ -56,6 +72,7 @@ async def get_debates_for_conclave(db: AsyncSession, conclave_id: str, page: int
     return [{
         "session_id": str(s.id), "topic": s.topic,
         "status": s.status, "is_morning_brief": s.is_morning_brief,
+        "contrarian_activated": s.contrarian_activated,
         "created_at": s.created_at.isoformat() if s.created_at else None,
     } for s in sessions]
 

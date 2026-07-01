@@ -37,7 +37,7 @@ export default function AgentProfile() {
     setMessage('')
   }
 
-  if (!agent) return <Layout><div className="p-4 text-[#8b8ba7]">Loading...</div></Layout>
+  if (!agent) return <Layout><div className="p-4 text-[#8b8ba7] font-mono text-sm">ENTERING SECURE CHANNEL...</div></Layout>
 
   return (
     <Layout>
